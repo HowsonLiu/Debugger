@@ -50,3 +50,10 @@ compile_commands.json
 
 # QtCreator local machine specific files for imported projects
 *creator.user*
+
+.vs/*
+debug/*
+release/*
+/debugger.vcxproj.user
+/debugger.vcxproj.filters
+/debugger.vcxproj
