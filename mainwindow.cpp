@@ -5,6 +5,23 @@
 #include <QFileDialog>
 #include <QMessageBox>
 #include <QLineEdit>
+#include <QStandardItemModel>
+#include <QDebug>
+
+namespace {
+	const int kColNum = 16;
+	const int kRowNum = 16;
+}
+
+QString toHexString(uint i)
+{
+	return "0x" + QString::number(i, 16);
+}
+
+uint fromHexString(QString str)
+{
+	return str.right(str.size() - 2).toInt(nullptr, 16);
+}
 
 MainWindow::MainWindow(QWidget *parent) :
     QMainWindow(parent),
@@ -12,12 +29,24 @@ MainWindow::MainWindow(QWidget *parent) :
 {
     ui->setupUi(this);
     m_thread = new DebuggerThread;
+	m_model = new QStandardItemModel(this);
+	m_model->setColumnCount(kColNum);
+	m_model->setRowCount(kRowNum);
+	for (int i = 0; i < kColNum; ++i)
+		m_model->setHeaderData(i, Qt::Horizontal, toHexString(i));
+	m_memory = new uchar[kRowNum * kColNum];
+
+	ui->tableView->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
+	ui->tableView->verticalHeader()->sectionResizeMode(QHeaderView::Stretch);
+	ui->tableView->setAlternatingRowColors(true);
 
 	connect(ui->actionOpen, &QAction::triggered, this, &MainWindow::onOpenButtonClicked);
 	connect(ui->actionAttach, &QAction::triggered, this, &MainWindow::onAttachButtonClicked);
 	connect(ui->actionExit, &QAction::triggered, this, &MainWindow::onExitButtonClicked);
 	connect(ui->actionContinue, &QAction::triggered, this, &MainWindow::onContinueButtonClicked);
 	connect(ui->actionBreak, &QAction::triggered, this, &MainWindow::onBreakButtonClicked);
+	connect(ui->addr, &QLineEdit::returnPressed, this, &MainWindow::onGoToAddress);
+	connect(ui->go, &QPushButton::clicked, this, &MainWindow::onGoToAddress);
 
 	connect(this, &MainWindow::sigContinue, m_thread, &DebuggerThread::onContinue);
 	connect(this, &MainWindow::sigBreak, m_thread, &DebuggerThread::onBreakNow);
@@ -32,6 +61,7 @@ MainWindow::MainWindow(QWidget *parent) :
 MainWindow::~MainWindow()
 {
     delete ui;
+	delete m_memory;
 }
 
 void MainWindow::onOpenButtonClicked()
@@ -61,12 +91,18 @@ void MainWindow::onExitButtonClicked()
 void MainWindow::onContinueButtonClicked()
 {
 	emit sigContinue(m_pid, m_tid);
+	m_running = true;
 	uiRunning();
 }
 
 void MainWindow::onBreakButtonClicked()
 {
 	emit sigBreak();
+}
+
+void MainWindow::onGoToAddress()
+{
+	updateMemory();
 }
 
 void MainWindow::onCreateProcessFailed()
@@ -93,6 +129,7 @@ void MainWindow::on_EXCEPTION_BREAKPOINT(unsigned long pid, unsigned long tid, v
 	m_tid = tid;
 	m_hProcess = hProcess;
 	m_hThread = hThread;
+	m_running = false;
 	update();
 	uiBreak();
 }
@@ -120,23 +157,55 @@ void MainWindow::uiRunning()
 void MainWindow::updateContext()
 {
 	if (m_hThread == NULL) return;
-	CONTEXT ctxt;
+
 	SuspendThread(m_hThread);
-	GetThreadContext(m_hThread, &ctxt);
+	GetThreadContext(m_hThread, &m_context);
 	ResumeThread(m_hThread);
 
-	ui->eaxE->setText(QString::number(ctxt.Eax, 16));
-	ui->ebxE->setText(QString::number(ctxt.Ebx, 16));
-	ui->ecxE->setText(QString::number(ctxt.Ecx, 16));
-	ui->edxE->setText(QString::number(ctxt.Edx, 16));
-	ui->ediE->setText(QString::number(ctxt.Edi, 16));
-	ui->esiE->setText(QString::number(ctxt.Esi, 16));
-	ui->ebpE->setText(QString::number(ctxt.Ebp, 16));
-	ui->espE->setText(QString::number(ctxt.Esp, 16));
-	ui->csE->setText(QString::number(ctxt.SegCs, 16));
-	ui->flagsE->setText(QString::number(ctxt.EFlags, 16));
-	ui->eipE->setText(QString::number(ctxt.Eip, 16));
-	ui->ssE->setText(QString::number(ctxt.SegSs, 16));
+	ui->eaxE->setText(toHexString(m_context.Eax));
+	ui->ebxE->setText(toHexString(m_context.Ebx));
+	ui->ecxE->setText(toHexString(m_context.Ecx));
+	ui->edxE->setText(toHexString(m_context.Edx));
+	ui->ediE->setText(toHexString(m_context.Edi));
+	ui->esiE->setText(toHexString(m_context.Esi));
+	ui->ebpE->setText(toHexString(m_context.Ebp));
+	ui->espE->setText(toHexString(m_context.Esp));
+	ui->csE->setText(toHexString(m_context.SegCs));
+	ui->flagsE->setText(toHexString(m_context.EFlags));
+	ui->eipE->setText(toHexString(m_context.Eip));
+	ui->addr->setText(toHexString(m_context.Eip));
+	ui->ssE->setText(toHexString(m_context.SegSs));
+}
+
+void MainWindow::updateMemory()
+{
+	LPVOID addr = (LPVOID)fromHexString(ui->addr->text());
+	SuspendThread(m_hThread);
+	DWORD dwOldAttr;
+	SIZE_T bytesRead;
+	VirtualProtect((LPVOID)addr, kColNum * kRowNum, PAGE_EXECUTE_READWRITE, &dwOldAttr);
+	BOOL res = ReadProcessMemory(m_hProcess, (LPVOID)addr, m_memory, kColNum * kRowNum, &bytesRead);
+	VirtualProtect((LPVOID)addr, kColNum * kRowNum, dwOldAttr, &dwOldAttr);
+	ResumeThread(m_hThread);
+
+	if (!res || bytesRead == 0) {
+		console("ReadProcessMemory Failed: " + QString::number(GetLastError()));
+		return;
+	}
+
+	// set header
+	for (int i = 0; i < kRowNum; ++i)
+		m_model->setHeaderData(i, Qt::Vertical, toHexString(i * kColNum + (int)addr));
+
+	// set content
+	for (int i = 0; i < bytesRead; ++i) {
+		int row = i / kColNum;
+		int col = i % kColNum;
+		m_model->setItem(row, col, new QStandardItem(toHexString(m_memory[i])));
+	}
+
+	ui->tableView->setModel(m_model);
+	ui->tableView->show();
 }
 
 void MainWindow::update()
@@ -144,4 +213,10 @@ void MainWindow::update()
 	ui->pidE->setText(QString::number(m_pid));
 	ui->tidE->setText(QString::number(m_tid));
 	updateContext();
+	updateMemory();
+}
+
+void MainWindow::console(const QString& log)
+{
+	ui->console->setText("Console: " + log);
 }

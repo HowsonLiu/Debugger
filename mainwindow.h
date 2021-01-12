@@ -9,6 +9,7 @@ class MainWindow;
 }
 
 class DebuggerThread;
+class QStandardItemModel;
 class MainWindow : public QMainWindow
 {
     Q_OBJECT
@@ -27,6 +28,7 @@ private slots:
     void onExitButtonClicked();
     void onContinueButtonClicked();
     void onBreakButtonClicked();
+    void onGoToAddress();
 
     void onCreateProcessFailed();
     void onAttachProcessFailed();
@@ -38,11 +40,18 @@ private:
     void uiBreak();
     void uiRunning();
     void updateContext();
+    void updateMemory();
     void update();
+    void console(const QString& log);
 
 private:
     Ui::MainWindow *ui;
     DebuggerThread* m_thread;
+    QStandardItemModel* m_model;
+
+    bool m_running;
+    CONTEXT m_context;
+    uchar* m_memory;
 
     // current view info
     DWORD m_pid = 0;
@@ -50,5 +59,8 @@ private:
     HANDLE m_hProcess = NULL;
     HANDLE m_hThread = NULL;
 };
+
+QString toHexString(uint);
+uint fromHexString(QString);
 
 #endif // MAINWINDOW_H
