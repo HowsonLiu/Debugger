@@ -29,6 +29,7 @@ private slots:
     void onContinueButtonClicked();
     void onBreakButtonClicked();
     void onGoToAddress();
+    void onApplyContext();
 
     void onCreateProcessFailed();
     void onAttachProcessFailed();
@@ -40,6 +41,7 @@ private:
     void uiBreak();
     void uiRunning();
     void updateContext();
+    void applyContext();
     void updateMemory();
     void update();
     void console(const QString& log);

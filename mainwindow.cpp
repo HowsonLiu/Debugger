@@ -47,6 +47,7 @@ MainWindow::MainWindow(QWidget *parent) :
 	connect(ui->actionBreak, &QAction::triggered, this, &MainWindow::onBreakButtonClicked);
 	connect(ui->addr, &QLineEdit::returnPressed, this, &MainWindow::onGoToAddress);
 	connect(ui->go, &QPushButton::clicked, this, &MainWindow::onGoToAddress);
+	connect(ui->apply, &QPushButton::clicked, this, &MainWindow::onApplyContext);
 
 	connect(this, &MainWindow::sigContinue, m_thread, &DebuggerThread::onContinue);
 	connect(this, &MainWindow::sigBreak, m_thread, &DebuggerThread::onBreakNow);
@@ -103,6 +104,11 @@ void MainWindow::onBreakButtonClicked()
 void MainWindow::onGoToAddress()
 {
 	updateMemory();
+}
+
+void MainWindow::onApplyContext()
+{
+	applyContext();
 }
 
 void MainWindow::onCreateProcessFailed()
@@ -175,6 +181,28 @@ void MainWindow::updateContext()
 	ui->eipE->setText(toHexString(m_context.Eip));
 	ui->addr->setText(toHexString(m_context.Eip));
 	ui->ssE->setText(toHexString(m_context.SegSs));
+}
+
+void MainWindow::applyContext()
+{
+	if (m_hThread == NULL) return;
+
+	m_context.Eax = fromHexString(ui->eaxE->text());
+	m_context.Ebx = fromHexString(ui->ebxE->text());
+	m_context.Ecx = fromHexString(ui->ecxE->text());
+	m_context.Edx = fromHexString(ui->edxE->text());
+	m_context.Edi = fromHexString(ui->ediE->text());
+	m_context.Esi = fromHexString(ui->esiE->text());
+	m_context.Ebp = fromHexString(ui->ebpE->text());
+	m_context.Esp = fromHexString(ui->espE->text());
+	m_context.SegCs = fromHexString(ui->csE->text());
+	m_context.EFlags = fromHexString(ui->flagsE->text());
+	m_context.Eip = fromHexString(ui->eipE->text());
+	m_context.SegSs = fromHexString(ui->ssE->text());
+
+	SuspendThread(m_hThread);
+	SetThreadContext(m_hThread, &m_context);
+	ResumeThread(m_hThread);
 }
 
 void MainWindow::updateMemory()
